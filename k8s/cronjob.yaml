@@ -1,0 +1,85 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    kustomize.toolkit.fluxcd.io/name: flux-system
+    kustomize.toolkit.fluxcd.io/namespace: flux-system
+  name: nvidia-forum-embeddings
+  namespace: tools
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata: {}
+    spec:
+      backoffLimit: 2
+      template:
+        metadata: {}
+        spec:
+          containers:
+          - command:
+            - python3
+            - /scripts/nvidia_forum_embeddings.py
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  key: database_url
+                  name: nvidia-forum-cnpg-secret
+            - name: EMBEDDING_API_URL
+              value: http://<internal-ip>:19701/v1/embeddings
+            - name: EMBEDDING_MODEL
+              value: sentence-transformers/all-MiniLM-L6-v2
+            - name: BATCH_SIZE
+              value: '10'
+            - name: MAX_RETRIES
+              value: '3'
+            image: python:3.11-slim
+            imagePullPolicy: IfNotPresent
+            name: embeddings
+            resources: {}
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /scripts
+              name: scripts
+            - mountPath: /usr/local/lib/python3.11/site-packages
+              name: pkg-cache
+          dnsPolicy: ClusterFirst
+          initContainers:
+          - command:
+            - /bin/sh
+            - -c
+            - python3 -m ensurepip --upgrade && pip install --no-cache-dir -r /scripts/requirements.txt
+            image: python:3.11-slim
+            imagePullPolicy: IfNotPresent
+            name: install-deps
+            resources: {}
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /usr/local/lib/python3.11/site-packages
+              name: pkg-cache
+            - mountPath: /scripts
+              name: scripts
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          terminationGracePeriodSeconds: 30
+          tolerations:
+          - effect: NoSchedule
+            key: node-role.kubernetes.io/control-plane
+            operator: Exists
+          volumes:
+          - configMap:
+              defaultMode: 420
+              name: nvidia-forum-embeddings
+            name: scripts
+          - emptyDir: {}
+            name: pkg-cache
+      ttlSecondsAfterFinished: 604800
+  schedule: 0 6 * * *
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  suspend: false
+
